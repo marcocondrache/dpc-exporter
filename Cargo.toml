@@ -1,3 +1,6 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+
+[workspace.dependencies]
+geo = { version = "0.33", features = ["use-serde"] }
