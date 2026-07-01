@@ -317,6 +317,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "hailwarden"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "clap",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "hailwarden-engine"
+version = "0.1.0"
+
+[[package]]
+name = "hailwarden-ingest"
+version = "0.1.0"
+
+[[package]]
+name = "hailwarden-tracker"
+version = "0.1.0"
+
+[[package]]
 name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -706,21 +733,6 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
-]
-
-[[package]]
-name = "service-template"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "clap",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
 ]
 
 [[package]]
