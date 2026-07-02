@@ -109,7 +109,7 @@ impl Dpc {
         let step = ext.width() / grid.raster_width as f64;
 
         grid.get_value_at::<f32>(&center, 0)
-            .context("home is outside DPC radar coverage")?;
+            .context("location is outside DPC radar coverage")?;
 
         Ok((
             time,

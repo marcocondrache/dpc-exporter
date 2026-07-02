@@ -2,11 +2,11 @@
 
 A Prometheus exporter for radar products from the Dipartimento della
 Protezione Civile (DPC). It reads observed radar products and exposes them as
-metrics around a configured point, so consumers can dashboard and alert on
+metrics around a configured location, so consumers can dashboard and alert on
 them, e.g. `dpc_hail_probability{scope="center"} > 0.5`.
 
 The service does no scoring of its own: DPC already computes a Probability of
-Hail field, and consumers handles thresholds and alerting.
+Hail field, and consumers handle thresholds and alerting.
 
 ## ✦ Metrics
 
@@ -37,3 +37,5 @@ Config is flag-driven, with env-var fallbacks (`--help` for all flags).
 
 Radar data © Dipartimento della Protezione Civile (Radar-DPC), distributed
 under CC-BY-SA 4.0. Derived works must attribute Radar-DPC and share alike.
+
+https://dpc-radar.readthedocs.io
