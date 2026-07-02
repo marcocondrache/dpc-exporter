@@ -1,9 +1,13 @@
 use axum::{Router, http::StatusCode, routing::any};
 
-mod health;
+use crate::dpc::Dpc;
 
-pub fn router() -> Router {
+mod health;
+// mod metrics;
+
+pub fn router(dpc: Dpc) -> Router {
     Router::new()
         .route("/", any(async || StatusCode::NO_CONTENT))
         .merge(health::router())
+    // .merge(metrics::router(metrics::Exporter::new(dpc)))
 }
