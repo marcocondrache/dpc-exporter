@@ -51,10 +51,10 @@ impl Exporter {
     async fn refresh_if_stale(&self) {
         {
             let frame = self.frame.lock().unwrap();
-            if let Some(f) = frame.as_ref() {
-                if (Utc::now() - f.time).num_seconds() < SAMPLE_PERIOD_SECS {
-                    return;
-                }
+            if let Some(f) = frame.as_ref()
+                && (Utc::now() - f.time).num_seconds() < SAMPLE_PERIOD_SECS
+            {
+                return;
             }
         }
 
