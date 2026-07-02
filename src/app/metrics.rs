@@ -4,7 +4,7 @@
 //! sample every 5 minutes, so the cached frame's own timestamp tells us whether
 //! a fetch is even possible — while the cache is younger than one sample period
 //! we serve it without touching DPC. Grafana does dashboards and alerting
-//! (e.g. `dpc-exporter_hail_probability{scope="home"} > 0.5`).
+//! (e.g. `dpc_hail_probability{scope="center"} > 0.5`).
 //!
 //! Data source: Radar-DPC (Dipartimento Protezione Civile), CC-BY-SA.
 
