@@ -1,0 +1,62 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Dockerfile"
+      - ".github/workflows/release.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-release:
+    name: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+    outputs:
+      version: ${{ steps.semantic-release.outputs.new_release_version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+
+      - uses: cycjimmy/semantic-release-action@ba330626c4750c19d8299de843f05c7aa5574f62 # v5.0.2
+        id: semantic-release
+        with:
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@^9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-image:
+    name: publish
+    needs: semantic-release
+    if: needs.semantic-release.outputs.version != ''
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/docker
+        with:
+          version: ${{ needs.semantic-release.outputs.version }}
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
