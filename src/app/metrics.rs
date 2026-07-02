@@ -4,7 +4,7 @@
 //! sample every 5 minutes, so the cached frame's own timestamp tells us whether
 //! a fetch is even possible — while the cache is younger than one sample period
 //! we serve it without touching DPC. Grafana does dashboards and alerting
-//! (e.g. `hailwarden_hail_probability{scope="home"} > 0.5`).
+//! (e.g. `dpc-exporter_hail_probability{scope="home"} > 0.5`).
 //!
 //! Data source: Radar-DPC (Dipartimento Protezione Civile), CC-BY-SA.
 
@@ -16,55 +16,79 @@ use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 
-use crate::dpc::Dpc;
+use crate::dpc::{Dpc, DpcGrid, DpcProduct, Region};
 
-/// DPC's sample cadence in seconds (products are published every 5 minutes).
 const SAMPLE_PERIOD_SECS: i64 = 300;
 
-/// Holds the DPC client and the last frame; refreshed on scrape when stale.
+struct Frame {
+    time: DateTime<Utc>,
+    poh: DpcGrid,
+    vmi: DpcGrid,
+    vil: DpcGrid,
+    sri: DpcGrid,
+    etm: DpcGrid,
+}
+
 pub struct Exporter {
     dpc: Dpc,
-    frame: Mutex<Option<HailFrame>>,
+    region: Region,
+    frame: Mutex<Option<Frame>>,
 }
 
 pub type Shared = Arc<Exporter>;
 
 impl Exporter {
-    pub fn new(dpc: Dpc) -> Shared {
+    pub fn new(dpc: Dpc, region: Region) -> Shared {
         Arc::new(Self {
             dpc,
+            region,
             frame: Mutex::new(None),
         })
     }
 
-    /// Fetch a new frame if the cache is empty or a newer sample may exist.
     async fn refresh_if_stale(&self) {
-        // Read the cached sample time and drop the guard before awaiting.
-        let known_ms = {
+        {
             let frame = self.frame.lock().unwrap();
-            match frame.as_ref() {
-                // Within one sample period no newer sample can exist yet.
-                Some(f) if (Utc::now() - f.time).num_seconds() < SAMPLE_PERIOD_SECS => return,
-                Some(f) => Some(f.time.timestamp_millis()),
-                None => None,
-            }
-        };
-
-        match self.dpc.latest_sample_time().await {
-            Ok(t) if Some(t) != known_ms => match self.dpc.fetch_at(t).await {
-                // ponytail: two concurrent stale scrapes may both fetch; the
-                // result is identical, last write wins. Fine for a home exporter.
-                Ok(frame) => {
-                    tracing::info!(time = %frame.time, "refreshed DPC frame");
-                    *self.frame.lock().unwrap() = Some(frame);
+            if let Some(f) = frame.as_ref() {
+                if (Utc::now() - f.time).num_seconds() < SAMPLE_PERIOD_SECS {
+                    return;
                 }
-                Err(e) => tracing::warn!(error = %e, "fetching DPC frame"),
-            },
-            Ok(_) => {} // already have the latest sample.
-            Err(e) => tracing::warn!(error = %e, "polling DPC sample time"),
+            }
         }
+
+        match self.fetch().await {
+            Ok(frame) => {
+                tracing::info!(time = %frame.time, "refreshed DPC frame");
+                *self.frame.lock().unwrap() = Some(frame);
+            }
+            Err(e) => tracing::warn!(error = %e, "fetching DPC frame"),
+        }
+    }
+
+    async fn fetch(&self) -> anyhow::Result<Frame> {
+        let (poh, vmi, vil, sri, etm) = tokio::try_join!(
+            self.dpc
+                .fetch_latest_at(DpcProduct::ProbabilityOfHail, self.region),
+            self.dpc
+                .fetch_latest_at(DpcProduct::VerticalMaximumIntensity, self.region),
+            self.dpc
+                .fetch_latest_at(DpcProduct::VerticallyIntegratedLiquid, self.region),
+            self.dpc
+                .fetch_latest_at(DpcProduct::SurfaceRainfallIntensity, self.region),
+            self.dpc
+                .fetch_latest_at(DpcProduct::EchoTopMap, self.region),
+        )?;
+
+        Ok(Frame {
+            time: poh.0,
+            poh: poh.1,
+            vmi: vmi.1,
+            vil: vil.1,
+            sri: sri.1,
+            etm: etm.1,
+        })
     }
 }
 
@@ -83,87 +107,58 @@ async fn handler(State(exp): State<Shared>) -> impl IntoResponse {
     ([(CONTENT_TYPE, "text/plain; version=0.0.4")], body)
 }
 
-fn render(frame: &HailFrame) -> String {
-    let (hr, hc) = frame.home;
+fn render(frame: &Frame) -> String {
     let mut s = String::new();
 
     gauge(
         &mut s,
-        "hailwarden_hail_probability",
+        "dpc_hail_probability",
         "Probability of hail (0-1), DPC POH.",
-        frame.poh[hr][hc],
-        area_max(&frame.poh),
+        frame.poh.center(),
+        frame.poh.max(),
     );
     gauge(
         &mut s,
-        "hailwarden_reflectivity_dbz",
+        "dpc_reflectivity_dbz",
         "Column-maximum reflectivity (dBZ), DPC VMI.",
-        frame.vmi[hr][hc],
-        area_max(&frame.vmi),
+        frame.vmi.center(),
+        frame.vmi.max(),
     );
     gauge(
         &mut s,
-        "hailwarden_vil_kgm2",
+        "dpc_vil_kgm2",
         "Vertically integrated liquid (kg/m^2), DPC VIL.",
-        frame.vil[hr][hc],
-        area_max(&frame.vil),
+        frame.vil.center(),
+        frame.vil.max(),
+    );
+    gauge(
+        &mut s,
+        "dpc_rain_intensity_mmh",
+        "Surface rainfall intensity (mm/h), DPC SRI.",
+        frame.sri.center(),
+        frame.sri.max(),
+    );
+    gauge(
+        &mut s,
+        "dpc_echo_top_meters",
+        "Echo top height (m), DPC ETM.",
+        frame.etm.center(),
+        frame.etm.max(),
     );
 
     let _ = writeln!(
         s,
-        "# HELP hailwarden_frame_timestamp_seconds Unix time of the DPC sample.\n\
-         # TYPE hailwarden_frame_timestamp_seconds gauge\n\
-         hailwarden_frame_timestamp_seconds {}",
+        "# HELP dpc_frame_timestamp_seconds Unix time of the DPC sample.\n\
+         # TYPE dpc_frame_timestamp_seconds gauge\n\
+         dpc_frame_timestamp_seconds {}",
         frame.time.timestamp()
     );
     s
 }
 
-/// Write one gauge with `home` and `area` series.
-fn gauge(s: &mut String, name: &str, help: &str, home: f32, area: f32) {
+fn gauge(s: &mut String, name: &str, help: &str, center: f32, area: f32) {
     let _ = writeln!(s, "# HELP {name} {help}");
     let _ = writeln!(s, "# TYPE {name} gauge");
-    let _ = writeln!(s, "{name}{{scope=\"home\"}} {home}");
+    let _ = writeln!(s, "{name}{{scope=\"center\"}} {center}");
     let _ = writeln!(s, "{name}{{scope=\"area\"}} {area}");
-}
-
-/// Maximum over a grid, ignoring `NaN` (no-data) cells; `NaN` if all missing.
-fn area_max(grid: &[Vec<f32>]) -> f32 {
-    grid.iter()
-        .flatten()
-        .copied()
-        .filter(|v| !v.is_nan())
-        .fold(f32::NAN, f32::max)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn frame() -> HailFrame {
-        HailFrame {
-            time: Utc::now(),
-            home: (0, 0),
-            step_m: 1000.0,
-            poh: vec![vec![0.2, 0.8], vec![f32::NAN, 0.1]],
-            vil: vec![vec![5.0, 9.0], vec![1.0, 2.0]],
-            vmi: vec![vec![30.0, 55.0], vec![10.0, 20.0]],
-        }
-    }
-
-    #[test]
-    fn area_max_ignores_nan() {
-        assert_eq!(area_max(&frame().poh), 0.8);
-        assert!(area_max(&[vec![f32::NAN]]).is_nan());
-    }
-
-    #[test]
-    fn render_emits_home_and_area_series() {
-        let out = render(&frame());
-        assert!(out.contains("hailwarden_hail_probability{scope=\"home\"} 0.2"));
-        assert!(out.contains("hailwarden_hail_probability{scope=\"area\"} 0.8"));
-        assert!(out.contains("hailwarden_reflectivity_dbz{scope=\"area\"} 55"));
-        assert!(out.contains("# TYPE hailwarden_vil_kgm2 gauge"));
-        assert!(out.contains("hailwarden_frame_timestamp_seconds "));
-    }
 }

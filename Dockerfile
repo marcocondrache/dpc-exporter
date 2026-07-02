@@ -9,10 +9,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
     cargo build --release --locked \
-          && cp /app/target/release/hailwarden /app/hailwarden
+          && cp /app/target/release/dpc-exporter /app/dpc-exporter
 
 FROM cgr.dev/chainguard/glibc-dynamic@sha256:e9a3236ebb746bbab93bda4ca842e55a6aaea2c812a685646043e842e69220be
 
-COPY --from=builder /app/hailwarden /usr/local/bin/hailwarden
+COPY --from=builder /app/dpc-exporter /usr/local/bin/dpc-exporter
 
-ENTRYPOINT ["hailwarden"]
+ENTRYPOINT ["dpc-exporter"]

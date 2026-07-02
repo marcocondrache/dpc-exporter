@@ -1,13 +1,13 @@
 use axum::{Router, http::StatusCode, routing::any};
 
-use crate::dpc::Dpc;
+use crate::dpc::{Dpc, Region};
 
 mod health;
-// mod metrics;
+mod metrics;
 
-pub fn router(dpc: Dpc) -> Router {
+pub fn router(dpc: Dpc, region: Region) -> Router {
     Router::new()
         .route("/", any(async || StatusCode::NO_CONTENT))
         .merge(health::router())
-    // .merge(metrics::router(metrics::Exporter::new(dpc)))
+        .merge(metrics::router(metrics::Exporter::new(dpc, region)))
 }

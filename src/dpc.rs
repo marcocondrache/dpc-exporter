@@ -25,11 +25,30 @@ pub struct Region {
     pub radius_km: f64,
 }
 
+pub struct DpcGrid {
+    grid: Vec<Vec<f32>>,
+}
+
+impl DpcGrid {
+    pub fn center(&self) -> f32 {
+        let mid = self.grid.len() / 2;
+        self.grid[mid][mid]
+    }
+
+    pub fn max(&self) -> f32 {
+        self.grid
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|v| !v.is_nan())
+            .fold(f32::NAN, f32::max)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum DpcProduct {
     VerticalMaximumIntensity,
     SurfaceRainfallIntensity,
-    HeavyRainDetection,
     VerticallyIntegratedLiquid,
     EchoTopMap,
     ProbabilityOfHail,
@@ -39,11 +58,10 @@ impl DpcProduct {
     pub fn as_str(&self) -> &str {
         match self {
             DpcProduct::VerticalMaximumIntensity => "VMI",
-            DpcProduct::SurfaceRainfallIntensity => "SRF",
-            DpcProduct::HeavyRainDetection => "HRD",
+            DpcProduct::SurfaceRainfallIntensity => "SRI",
             DpcProduct::VerticallyIntegratedLiquid => "VIL",
-            DpcProduct::EchoTopMap => "ETM",
             DpcProduct::ProbabilityOfHail => "POH",
+            DpcProduct::EchoTopMap => "ETM",
         }
     }
 }
@@ -59,13 +77,19 @@ impl Dpc {
         })
     }
 
-    pub async fn fetch_latest_at(
-        &self,
-        region: Region,
-        product: DpcProduct,
-    ) -> Result<(DateTime<Utc>, Vec<Vec<f32>>)> {
+    pub async fn fetch_latest(&self, product: DpcProduct) -> Result<(DateTime<Utc>, GeoTiff)> {
         let time = self.latest_time(product).await?;
         let grid = self.grid(product, time).await?;
+
+        Ok((time, grid))
+    }
+
+    pub async fn fetch_latest_at(
+        &self,
+        product: DpcProduct,
+        region: Region,
+    ) -> Result<(DateTime<Utc>, DpcGrid)> {
+        let (time, grid) = self.fetch_latest(product).await?;
         let mut center = (
             region.center.x().to_radians(),
             region.center.y().to_radians(),
@@ -154,7 +178,7 @@ impl Dpc {
             .map_err(Into::into)
     }
 
-    fn crop(g: &GeoTiff, step: f64, radius: usize, center: geo::Coord<f64>) -> Vec<Vec<f32>> {
+    fn crop(g: &GeoTiff, step: f64, radius: usize, center: geo::Coord<f64>) -> DpcGrid {
         let value_at = |g: &GeoTiff, coord: geo::Coord<f64>| match g.get_value_at::<f32>(&coord, 0)
         {
             Some(v) if v > NODATA => v,
@@ -169,12 +193,14 @@ impl Dpc {
                 }
             };
 
-        (0..=2 * radius)
+        let grid = (0..=2 * radius)
             .map(|r| {
                 (0..=2 * radius)
                     .map(|c| value_at(g, cell_coord(center, step, radius, r, c)))
                     .collect()
             })
-            .collect()
+            .collect();
+
+        DpcGrid { grid }
     }
 }

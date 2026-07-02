@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 
 use clap::Parser;
 
-use crate::dpc::Dpc;
+use crate::dpc::{Dpc, Region};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
@@ -18,16 +18,16 @@ struct Args {
     #[arg(long, env = "RUST_LOG", default_value = "info")]
     log: String,
 
-    /// Home latitude (WGS84).
-    #[arg(long, env = "HOME_LAT")]
+    /// latitude (WGS84).
+    #[arg(long, env = "LAT")]
     lat: f64,
 
-    /// Home longitude (WGS84).
-    #[arg(long, env = "HOME_LON")]
+    /// longitude (WGS84).
+    #[arg(long, env = "LON")]
     lon: f64,
 
-    /// Radius around home to monitor, in km.
-    #[arg(long, env = "HOME_RADIUS_KM", default_value_t = 20.0)]
+    /// Radius around to monitor, in km.
+    #[arg(long, env = "RADIUS_KM", default_value_t = 20.0)]
     radius_km: f64,
 }
 
@@ -35,8 +35,12 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::try_parse()?;
     let _telemetry = telemetry::Telemetry::init(&args.log)?;
+    let region = Region {
+        center: geo::Point::new(args.lon, args.lat),
+        radius_km: args.radius_km,
+    };
 
     let dpc = Dpc::new()?;
 
-    server::serve(app::router(dpc), args.bind).await
+    server::serve(app::router(dpc, region), args.bind).await
 }
