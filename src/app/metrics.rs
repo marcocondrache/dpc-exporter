@@ -9,105 +9,32 @@
 //! Data source: Radar-DPC (Dipartimento Protezione Civile), CC-BY-SA.
 
 use std::fmt::Write;
-use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::extract::State;
 use axum::http::header::CONTENT_TYPE;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use chrono::{DateTime, Utc};
 
-use crate::dpc::{Dpc, DpcGrid, DpcProduct, Region};
+use crate::{app::AppState, exporter::ExporterFrame};
 
-const SAMPLE_PERIOD_SECS: i64 = 300;
-
-struct Frame {
-    time: DateTime<Utc>,
-    poh: DpcGrid,
-    vmi: DpcGrid,
-    vil: DpcGrid,
-    sri: DpcGrid,
-    etm: DpcGrid,
+pub fn router() -> Router<AppState> {
+    Router::new().route("/metrics", get(handler))
 }
 
-pub struct Exporter {
-    dpc: Dpc,
-    region: Region,
-    frame: Mutex<Option<Frame>>,
-}
+async fn handler(State(state): State<AppState>) -> impl IntoResponse {
+    let exp = &state.exporter;
 
-pub type Shared = Arc<Exporter>;
-
-impl Exporter {
-    pub fn new(dpc: Dpc, region: Region) -> Shared {
-        Arc::new(Self {
-            dpc,
-            region,
-            frame: Mutex::new(None),
-        })
-    }
-
-    async fn refresh_if_stale(&self) {
-        {
-            let frame = self.frame.lock().unwrap();
-            if let Some(f) = frame.as_ref()
-                && (Utc::now() - f.time).num_seconds() < SAMPLE_PERIOD_SECS
-            {
-                return;
-            }
-        }
-
-        match self.fetch().await {
-            Ok(frame) => {
-                tracing::info!(time = %frame.time, "refreshed DPC frame");
-                *self.frame.lock().unwrap() = Some(frame);
-            }
-            Err(e) => tracing::warn!(error = %e, "fetching DPC frame"),
-        }
-    }
-
-    async fn fetch(&self) -> anyhow::Result<Frame> {
-        let (poh, vmi, vil, sri, etm) = tokio::try_join!(
-            self.dpc
-                .fetch_latest_at(DpcProduct::ProbabilityOfHail, self.region),
-            self.dpc
-                .fetch_latest_at(DpcProduct::VerticalMaximumIntensity, self.region),
-            self.dpc
-                .fetch_latest_at(DpcProduct::VerticallyIntegratedLiquid, self.region),
-            self.dpc
-                .fetch_latest_at(DpcProduct::SurfaceRainfallIntensity, self.region),
-            self.dpc
-                .fetch_latest_at(DpcProduct::EchoTopMap, self.region),
-        )?;
-
-        Ok(Frame {
-            time: poh.0,
-            poh: poh.1,
-            vmi: vmi.1,
-            vil: vil.1,
-            sri: sri.1,
-            etm: etm.1,
-        })
-    }
-}
-
-pub fn router(state: Shared) -> Router {
-    Router::new()
-        .route("/metrics", get(handler))
-        .with_state(state)
-}
-
-async fn handler(State(exp): State<Shared>) -> impl IntoResponse {
-    exp.refresh_if_stale().await;
-    let body = match &*exp.frame.lock().unwrap() {
+    exp.refresh().await;
+    let body = match &*exp.frame() {
         Some(frame) => render(frame),
         None => String::from("# no DPC frame fetched yet\n"),
     };
+
     ([(CONTENT_TYPE, "text/plain; version=0.0.4")], body)
 }
 
-fn render(frame: &Frame) -> String {
+fn render(frame: &ExporterFrame) -> String {
     let mut s = String::new();
 
     gauge(
