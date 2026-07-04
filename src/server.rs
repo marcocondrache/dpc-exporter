@@ -43,7 +43,7 @@ pub async fn serve(router: Router, bind: SocketAddr) -> Result<()> {
                 .on_response(|response: &Response<_>, latency: Duration, _span: &Span| {
                     tracing::info!(
                         status = response.status().as_u16(),
-                        latency_ms = latency.as_millis(),
+                        latency = ?latency,
                         "request completed"
                     );
                 }),

@@ -1,9 +1,8 @@
 //! Prometheus exporter for DPC hail products.
 //!
 //! There is no background task: `/metrics` refreshes lazily. DPC publishes a new
-//! sample every 5 minutes, so the cached frame's own timestamp tells us whether
-//! a fetch is even possible — while the cache is younger than one sample period
-//! we serve it without touching DPC. Grafana does dashboards and alerting
+//! sample every 5 minutes, so while the cached frame is younger than one sample
+//! period we serve it without touching DPC. Grafana does dashboards and alerting
 //! (e.g. `dpc_hail_probability{scope="center"} > 0.5`).
 //!
 //! Data source: Radar-DPC (Dipartimento Protezione Civile), CC-BY-SA.
@@ -27,7 +26,7 @@ async fn handler(State(state): State<AppState>) -> impl IntoResponse {
 
     exp.refresh().await;
     let body = match &*exp.frame() {
-        Some(frame) => render(frame),
+        Some((_, frame)) => render(frame),
         None => String::from("# no DPC frame fetched yet\n"),
     };
 
