@@ -25,20 +25,19 @@ pub struct Region {
     pub radius_km: f64,
 }
 
+#[derive(Debug, Clone)]
 pub struct DpcGrid {
-    grid: Vec<Vec<f32>>,
+    grid: Vec<f32>,
 }
 
 impl DpcGrid {
     pub fn center(&self) -> f32 {
-        let mid = self.grid.len() / 2;
-        self.grid[mid][mid]
+        self.grid[self.grid.len() / 2]
     }
 
     pub fn max(&self) -> f32 {
         self.grid
             .iter()
-            .flatten()
             .copied()
             .filter(|v| !v.is_nan())
             .fold(f32::NAN, f32::max)
@@ -66,11 +65,11 @@ impl DpcProduct {
     }
 }
 
-pub struct Dpc {
+pub struct DpcClient {
     client: reqwest::Client,
 }
 
-impl Dpc {
+impl DpcClient {
     pub fn new() -> Result<Self> {
         Ok(Self {
             client: reqwest::Client::new(),
@@ -193,13 +192,13 @@ impl Dpc {
                 }
             };
 
-        let grid = (0..=2 * radius)
-            .map(|r| {
-                (0..=2 * radius)
-                    .map(|c| value_at(g, cell_coord(center, step, radius, r, c)))
-                    .collect()
-            })
-            .collect();
+        let n = 2 * radius + 1;
+        let mut grid = Vec::with_capacity(n * n);
+        for r in 0..n {
+            for c in 0..n {
+                grid.push(value_at(g, cell_coord(center, step, radius, r, c)));
+            }
+        }
 
         DpcGrid { grid }
     }

@@ -1,13 +1,14 @@
 mod app;
 mod dpc;
+mod exporter;
 mod server;
 mod telemetry;
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use clap::Parser;
 
-use crate::dpc::{Dpc, Region};
+use crate::dpc::{DpcClient, Region};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
@@ -40,7 +41,9 @@ async fn main() -> anyhow::Result<()> {
         radius_km: args.radius_km,
     };
 
-    let dpc = Dpc::new()?;
+    let dpc = DpcClient::new()?;
+    let exporter = Arc::new(exporter::Exporter::new(dpc, region));
+    let state = app::AppState { exporter };
 
-    server::serve(app::router(dpc, region), args.bind).await
+    server::serve(app::router(state), args.bind).await
 }
