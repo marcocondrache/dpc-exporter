@@ -1,11 +1,14 @@
-use std::sync::{Mutex, MutexGuard};
+use std::{
+    sync::{Mutex, MutexGuard},
+    time::{Duration, Instant},
+};
 
 use chrono::{DateTime, Utc};
 
 use crate::dpc::{DpcClient, DpcGrid, DpcProduct, Region};
 
-/// DPC publishes a new sample every 5 minutes; younger cache needs no fetch.
-const SAMPLE_PERIOD_SECS: i64 = 300;
+/// DPC publishes a new sample every 5 minutes; skip refetching within that window.
+const SAMPLE_PERIOD: Duration = Duration::from_secs(300);
 
 pub struct ExporterFrame {
     pub time: DateTime<Utc>,
@@ -19,7 +22,7 @@ pub struct ExporterFrame {
 pub struct Exporter {
     dpc: DpcClient,
     region: Region,
-    frame: Mutex<Option<ExporterFrame>>,
+    frame: Mutex<Option<(Instant, ExporterFrame)>>,
 }
 
 impl Exporter {
@@ -31,15 +34,15 @@ impl Exporter {
         }
     }
 
-    pub fn frame(&self) -> MutexGuard<'_, Option<ExporterFrame>> {
+    pub fn frame(&self) -> MutexGuard<'_, Option<(Instant, ExporterFrame)>> {
         self.frame.lock().unwrap()
     }
 
     pub async fn refresh(&self) {
         {
             let frame = self.frame.lock().unwrap();
-            if let Some(f) = frame.as_ref()
-                && (Utc::now() - f.time).num_seconds() < SAMPLE_PERIOD_SECS
+            if let Some((fetched_at, _)) = frame.as_ref()
+                && fetched_at.elapsed() < SAMPLE_PERIOD
             {
                 return;
             }
@@ -48,7 +51,7 @@ impl Exporter {
         match self.fetch().await {
             Ok(frame) => {
                 tracing::info!(time = %frame.time, "refreshed DPC frame");
-                *self.frame.lock().unwrap() = Some(frame);
+                *self.frame.lock().unwrap() = Some((Instant::now(), frame));
             }
             Err(e) => tracing::warn!(error = %e, "fetching DPC frame"),
         }
