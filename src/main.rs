@@ -3,12 +3,16 @@ mod dpc;
 mod exporter;
 mod server;
 mod telemetry;
+mod types;
 
 use std::{net::SocketAddr, sync::Arc};
 
 use clap::Parser;
 
-use crate::dpc::{DpcClient, Region};
+use crate::{
+    dpc::{DpcClient, Region},
+    types::{Latitude, Longitude, RadiusKm},
+};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
@@ -21,15 +25,15 @@ struct Args {
 
     /// latitude (WGS84).
     #[arg(long, env = "LAT")]
-    lat: f64,
+    lat: Latitude,
 
     /// longitude (WGS84).
     #[arg(long, env = "LON")]
-    lon: f64,
+    lon: Longitude,
 
     /// Radius around to monitor, in km.
-    #[arg(long, env = "RADIUS_KM", default_value_t = 20.0)]
-    radius_km: f64,
+    #[arg(long, env = "RADIUS_KM", default_value = "20")]
+    radius_km: RadiusKm,
 }
 
 #[tokio::main]
@@ -37,8 +41,8 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::try_parse()?;
     let _telemetry = telemetry::Telemetry::init(&args.log)?;
     let region = Region {
-        center: geo::Point::new(args.lon, args.lat),
-        radius_km: args.radius_km,
+        center: geo::Point::new(*args.lon, *args.lat),
+        radius_km: *args.radius_km,
     };
 
     let dpc = DpcClient::new()?;
